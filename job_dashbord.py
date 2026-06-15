@@ -9,7 +9,7 @@ from collections import defaultdict
 from typing import List, Dict, Any
 
 class JobHuntingAppGenerator:
-    def __init__(self, output_path: str = "就活管理システム.xlsx"):
+    def __init__(self, output_path: str = "demo_就活管理システム.xlsx"):
         self.output_path = output_path
         self.wb = None
         
@@ -48,21 +48,21 @@ class JobHuntingAppGenerator:
         self.STARS = ["★★★★★", "★★★★☆", "★★★☆☆", "★★☆☆☆", "★☆☆☆☆"]
 
     def load_or_create_data(self):
-        """Excelファイルが存在する場合はそれを読み込み、存在しない場合は初期サンプルデータを作成します。"""
+        """Excelが存在する場合はデータを読み込み、存在しない場合は初期サンプルデータを作成します。"""
         if os.path.exists(self.output_path):
-            print(f"既存のファイル '{self.output_path}' を読み込んでタイムラインを更新します...")
+            print(f"既存のファイル '{self.output_path}' を検出しました。データを読み込んで最新状態に同期します...")
             self.wb = openpyxl.load_workbook(self.output_path)
             
-            # 既存の動的生成シート(Dashboard, Timeline, Analytics)を一旦削除して再構築する
+            # 動的再計算される表示シートのみを一旦削除
             for sheet_name in ["Dashboard", "Timeline", "Analytics"]:
                 if sheet_name in self.wb.sheetnames:
                     self.wb.remove(self.wb[sheet_name])
             
-            # CompaniesとEventsから最新データを読み出す
+            # ユーザーが編集した最新マスタをExcelから吸い出す
             companies = self._read_companies_from_sheet()
             events = self._read_events_from_sheet()
         else:
-            print(f"新規ファイルを作成し、サンプルデータを投入します...")
+            print(f"新規ファイルを作成し、初期サンプルデータを投入します...")
             self.wb = openpyxl.Workbook()
             if "Sheet" in self.wb.sheetnames:
                 self.wb.remove(self.wb["Sheet"])
@@ -89,7 +89,7 @@ class JobHuntingAppGenerator:
                 ["野村総合研究所", "GD", "2026-06-18", "2026-06-21", "テーマ：新規事業立案"],
                 ["ソニー", "ES", "2026-06-20", "2026-06-30", "技術職エントリーシート"]
             ]
-            # マスターシートの新規作成
+            # 入力元マスターシートの作成
             self._init_companies_sheet(companies)
             self._init_events_sheet(events)
             
@@ -99,7 +99,7 @@ class JobHuntingAppGenerator:
         ws = self.wb["Companies"]
         data = []
         for row in ws.iter_rows(min_row=2, max_col=8, values_only=True):
-            if row[0]: # 企業名が入っている行のみ取得
+            if row[0]: # 企業名が入っている有効行
                 data.append(list(row))
         return data
 
@@ -107,21 +107,21 @@ class JobHuntingAppGenerator:
         ws = self.wb["Events"]
         data = []
         for row in ws.iter_rows(min_row=2, max_col=5, values_only=True):
-            if row[0]: # 企業名が入っている行のみ取得
+            if row[0]: # 企業名が入っている有効行
                 data.append(list(row))
         return data
 
     def update_application(self):
-        """全体の生成・更新ワークフローを実行します。"""
+        """全体の自動更新フローを回します"""
         companies, events = self.load_or_create_data()
         
-        # 動的シートの作成
+        # 各種ビジュアル・集計シートの自動再描画
         self._create_dashboard_sheet()
         self._create_timeline_sheet(companies, events)
         self._create_analytics_sheet()
         
         self.wb.save(self.output_path)
-        print(f"すべてのシートが正常に更新されました！保存先: {self.output_path}")
+        print(f"🎉 選択バグ修正版のアプリが更新されました！保存先: {self.output_path}")
 
     def _apply_base_grid(self, ws):
         ws.views.sheetView[0].showGridLines = True
@@ -145,13 +145,22 @@ class JobHuntingAppGenerator:
                 cell.font = Font(name="Segoe UI", size=10)
                 cell.border = thin_border
                 
-        # 右側の隠しエリアにドロップダウン用のマスタデータを書き込む
-        ws.cell(row=1, column=10, value="ステータスマスタ").font = Font(bold=True)
+        # 画面外のJ, K, L列にドロップダウンマスタを非表示・管理用に設置
         for i, val in enumerate(self.STATUSES, start=2): ws.cell(row=i, column=10, value=val)
-        ws.cell(row=1, column=11, value="優先度マスタ").font = Font(bold=True)
         for i, val in enumerate(self.PRIORITIES, start=2): ws.cell(row=i, column=11, value=val)
-        ws.cell(row=1, column=12, value="志望度マスタ").font = Font(bold=True)
         for i, val in enumerate(self.STARS, start=2): ws.cell(row=i, column=12, value=val)
+
+        # ドロップダウンの設定規則（Companiesシート用）
+        dv_st = DataValidation(type="list", formula1=f"=Companies!$J$2:$J${len(self.STATUSES)+1}")
+        dv_pr = DataValidation(type="list", formula1=f"=Companies!$K$2:$K${len(self.PRIORITIES)+1}")
+        dv_sr = DataValidation(type="list", formula1=f"=Companies!$L$2:$L${len(self.STARS)+1}")
+        ws.add_data_validation(dv_st)
+        ws.add_data_validation(dv_pr)
+        ws.add_data_validation(dv_sr)
+        for r in range(2, 100):
+            dv_pr.add(ws.cell(row=r, column=3))
+            dv_sr.add(ws.cell(row=r, column=4))
+            dv_st.add(ws.cell(row=r, column=5))
 
         ws.column_dimensions['A'].width = 24
         ws.column_dimensions['B'].width = 16
@@ -231,14 +240,14 @@ class JobHuntingAppGenerator:
                 for c in [ord(lbl_col)-64, ord(lbl_col)-63]:
                     ws.cell(row=r, column=c).border = thin_border
 
-        # 選考通過率
+        # 各種レート計算
         ws["B10"] = "選考通過率分析"
         ws["B10"].font = Font(name="Segoe UI", size=12, bold=True, color=self.NAVY_DARK)
         rates_data = [
-            ("ES通過率", '=COUNTIF(Companies!E2:E100, "ES通過")+COUNTIF(Companies!E2:E100, "*面接*")+COUNTIF(Companies!E2:E100, "内定")', '=IF(B3>0, C12/B3, 0)'),
-            ("SPI通過率", '=COUNTIF(Companies!E2:E100, "SPI通過")+COUNTIF(Companies!E2:E100, "*面接*")+COUNTIF(Companies!E2:E100, "内定")', '=IF(B3>0, C13/B3, 0)'),
-            ("面接通過率", '=COUNTIF(Companies!E2:E100, "二次面接通過")+COUNTIF(Companies!E2:E100, "最終面接通過")+COUNTIF(Companies!E2:E100, "内定")', '=IF(B3>0, C14/B3, 0)'),
-            ("インターン参加率", '=COUNTIF(Companies!E2:E100, "インターン参加中")+COUNTIF(Companies!E2:E100, "インターン決定")', '=IF(B3>0, C15/B3, 0)')
+            ("ES通過率", '=COUNTIF(Companies!E2:E100, "ES通過")+COUNTIF(Companies!E2:E100, "*面接*")+COUNTIF(Companies!E2:E100, "内定")', '=IF(B4>0, C12/B4, 0)'),
+            ("SPI通過率", '=COUNTIF(Companies!E2:E100, "SPI通過")+COUNTIF(Companies!E2:E100, "*面接*")+COUNTIF(Companies!E2:E100, "内定")', '=IF(B4>0, C13/B4, 0)'),
+            ("面接通過率", '=COUNTIF(Companies!E2:E100, "二次面接通過")+COUNTIF(Companies!E2:E100, "最終面接通過")+COUNTIF(Companies!E2:E100, "内定")', '=IF(B4>0, C14/B4, 0)'),
+            ("インターン参加率", '=COUNTIF(Companies!E2:E100, "インターン参加中")+COUNTIF(Companies!E2:E100, "インターン決定")', '=IF(B4>0, C15/B4, 0)')
         ]
         for r_idx, (step, form1, form2) in enumerate(rates_data, start=12):
             ws.cell(row=r_idx, column=2, value=step)
@@ -246,9 +255,9 @@ class JobHuntingAppGenerator:
             c2 = ws.cell(row=r_idx, column=4, value=form2)
             c2.number_format = "0.0%"
             c2.alignment = Alignment(horizontal="right")
-            for c in range(2, 5): ws.cell(row=r_idx, column=c).border = thin_border
+            for c in range(2, 4): ws.cell(row=r_idx, column=c).border = thin_border
 
-        # 優先度別集計
+        # 優先度グラフ基礎データ
         ws["F10"] = "優先度別応募件数"
         ws["F10"].font = Font(name="Segoe UI", size=12, bold=True, color=self.NAVY_DARK)
         pri_data = [("Sランク", '=COUNTIF(Companies!C2:C100, "S")'), ("Aランク", '=COUNTIF(Companies!C2:C100, "A")'),
@@ -258,7 +267,6 @@ class JobHuntingAppGenerator:
             ws.cell(row=r_idx, column=7, value=form).alignment = Alignment(horizontal="right")
             for c in range(6, 8): ws.cell(row=r_idx, column=c).border = thin_border
 
-        # グラフ配置
         chart = BarChart()
         chart.type = "col"
         chart.title = "優先度別 企業数分布"
@@ -273,11 +281,10 @@ class JobHuntingAppGenerator:
             ws.column_dimensions[get_column_letter(col[0].column)].width = 14
 
     def _create_timeline_sheet(self, companies: List[List[Any]], events: List[List[Any]]):
-        """Timelineシートの作成: 優先度・志望度・ステータスのトリプルドロップダウン対応"""
+        """Timelineシートを再構成し、確実に動作するトリプルドロップダウンをバインドします。"""
         ws = self.wb.create_sheet(title="Timeline", index=1)
         self._apply_base_grid(ws)
         
-        # 凡例表示
         ws["A1"] = "【凡例】"
         ws["A1"].font = Font(name="Segoe UI", size=10, bold=True)
         for i, (ev_type, colors) in enumerate(self.EVENT_COLORS.items(), start=2):
@@ -286,7 +293,6 @@ class JobHuntingAppGenerator:
             cell.fill = PatternFill(start_color=colors["fill"], end_color=colors["fill"], fill_type="solid")
             cell.alignment = Alignment(horizontal="center")
         
-        # ヘッダー生成
         left_headers = ["企業名", "業界", "優先度", "志望度", "ステータス"]
         for i, h in enumerate(left_headers, start=1):
             ws.cell(row=3, column=i, value=h)
@@ -295,7 +301,6 @@ class JobHuntingAppGenerator:
             ws.cell(row=3, column=i).alignment = Alignment(horizontal="center", vertical="center")
             ws.merge_cells(start_row=3, start_column=i, end_row=4, end_column=i)
             
-        # カレンダー生成 (2026年6月)
         start_date = datetime(2026, 6, 1)
         days_count = 30
         ws.merge_cells("F3:AI3")
@@ -316,7 +321,6 @@ class JobHuntingAppGenerator:
             
         ws.freeze_panes = "F5"
         
-        # イベントデータのマッピング準備
         events_by_company = defaultdict(list)
         for ev in events:
             events_by_company[ev[0]].append({
@@ -324,10 +328,11 @@ class JobHuntingAppGenerator:
                 "end": datetime.strptime(str(ev[3])[:10], "%Y-%m-%d") if isinstance(ev[3], (datetime, str)) else ev[3], "note": ev[4]
             })
             
-        # 🟢 データバリデーション（ドロップダウン）の設定
-        dv_priority = DataValidation(type="list", formula1="='Companies'!$K$2:$K$5", allow_blank=True)
-        dv_star = DataValidation(type="list", formula1="='Companies'!$L$2:$L$6", allow_blank=True)
-        dv_status = DataValidation(type="list", formula1="='Companies'!$I$2:$I$20", allow_blank=True)
+        # 🟢 バグ修正ポイント: Excelが100%認識する「シート名囲みなし」数式に修正
+        dv_priority = DataValidation(type="list", formula1=f"=Companies!$K$2:$K${len(self.PRIORITIES)+1}", allow_blank=True)
+        dv_star = DataValidation(type="list", formula1=f"=Companies!$L$2:$L${len(self.STARS)+1}", allow_blank=True)
+        dv_status = DataValidation(type="list", formula1=f"=Companies!$J$2:$J${len(self.STATUSES)+1}", allow_blank=True)
+        
         ws.add_data_validation(dv_priority)
         ws.add_data_validation(dv_star)
         ws.add_data_validation(dv_status)
@@ -340,7 +345,6 @@ class JobHuntingAppGenerator:
             c_name, industry, priority, star, status = comp[0], comp[1], comp[2], comp[3], comp[4]
             comp_events = events_by_company[c_name]
             
-            # 多段（サブ行）判定
             allocated_rows: List[List[Dict[str, Any]]] = []
             for ev in sorted(comp_events, key=lambda x: x["start"]):
                 placed = False
@@ -353,7 +357,6 @@ class JobHuntingAppGenerator:
                     
             rows_needed = max(1, len(allocated_rows))
             
-            # 各左側固定セルへデータ入力とマージ、およびドロップダウンの適用
             for col_idx, val in enumerate([c_name, industry, priority, star, status], start=1):
                 cell_addr = f"{get_column_letter(col_idx)}{current_row}"
                 target_cell = ws[cell_addr]
@@ -364,7 +367,7 @@ class JobHuntingAppGenerator:
                 if rows_needed > 1:
                     ws.merge_cells(f"{cell_addr}:{get_column_letter(col_idx)}{current_row + rows_needed - 1}")
                 
-                # 🟢 ここでドロップダウンを Timeline シートのセルにも紐付ける
+                # 🟢 各マージした代表セルにドロップダウン入力規則を直接バインド
                 if col_idx == 3: 
                     dv_priority.add(target_cell)
                     cfg = self.PRIORITY_COLORS.get(priority, {"fill": "FFFFFF", "font": "000000"})
@@ -375,7 +378,7 @@ class JobHuntingAppGenerator:
                 elif col_idx == 5:
                     dv_status.add(target_cell)
             
-            # タイムライン背景の描画
+            # グリッド描画
             for r_offset in range(rows_needed):
                 r_idx = current_row + r_offset
                 ws.row_dimensions[r_idx].height = 22
@@ -386,12 +389,11 @@ class JobHuntingAppGenerator:
                     if c_date.weekday() == 5: grid_cell.fill = PatternFill(start_color="F2F6FB", fill_type="solid")
                     elif c_date.weekday() == 6: grid_cell.fill = PatternFill(start_color="FDF2F2", fill_type="solid")
                     
-                    # 今日の日付ライン (2026-06-14を仮定)
-                    if c_date.date() == datetime(2026, 6, 14).date():
+                    if c_date.date() == datetime(2026, 6, 14).date(): # 今日線
                         grid_cell.border = Border(left=Side(style='medium', color="FF0000"), right=Side(style='medium', color="FF0000"),
                                                  top=Side(style='thin', color=self.GRAY_BORDER), bottom=Side(style='thin', color=self.GRAY_BORDER))
             
-            # ガントバーの描画
+            # イベントバー描写
             for r_offset, row_list in enumerate(allocated_rows):
                 r_idx = current_row + r_offset
                 for ev in row_list:
